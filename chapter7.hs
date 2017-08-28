@@ -63,7 +63,6 @@ filter'' p = foldr (\x acc -> if p x then x:acc else acc) []
 
 type Bit = Int
 
-
 {- assume binary numbers are written in reverse -}
 
 bin2int' :: [Bit] -> Int
@@ -84,9 +83,16 @@ int2bin n = n `mod` 2: int2bin (n `div` 2)
 make8 :: [Bit] -> [Bit]
 make8 bits = take 8 (bits ++ repeat 0)
 
+{- add parity bit -}
+parity :: [Bit] -> Bit
+parity bits =  head bits 
+
+addParity :: [Bit] -> [Bit]
+addParity bits = parity bits : bits
+
 {- Transmission -}
 encode :: String -> [Bit]
-encode = concat . map (make8 . int2bin. ord)
+encode = concat . map (addParity . make8 . int2bin. ord)
 
 {- chop bit string into 8 bit chunks -}
 
@@ -94,9 +100,19 @@ chop8 :: [Bit] -> [[Bit]]
 chop8 [] = []
 chop8 xs = take 8 xs : chop8 (drop 8 xs)
 
+-- chop with parity 
+chop9 :: [Bit] -> [[Bit]]
+chop9 [] = []
+chop9 xs = take 9 xs : chop9 (drop 9 xs)
+
+checkError :: [Bit] -> [Bit]
+checkError bits
+  | head bits == parity (drop 1 bits) = drop 1 bits
+  | otherwise = error "Error in parity"
+
 {- Decode -}
 decode :: [Bit] -> String
-decode  =   map (chr . bin2int) . chop8
+decode  =   map (chr . bin2int . checkError)  . chop9
 
 transmit :: String -> String
 transmit = decode . channel . encode
@@ -104,6 +120,13 @@ transmit = decode . channel . encode
 -- perfect channel
 channel :: [Bit] -> [Bit]
 channel = id
+
+-- faulty channel
+faultyChannel :: [Bit] -> [Bit]
+faultyChannel = drop 1
+
+faultyTransmit :: String -> String
+faultyTransmit = decode . faultyChannel . encode
 
 {- voting algorithms -}
 
@@ -135,3 +158,103 @@ winner' :: Ord a => [[a]] -> a
 winner' bs = case rank (rmempty bs) of
                [c] -> c
                (c:cs) -> winner' (elim c bs)
+
+{- Exercises -}
+
+-- list comprehension as map & filter
+lcomp :: [a] -> (a -> b) -> (a -> Bool) -> [b]
+lcomp xs f p = map f (filter p  xs)
+
+-- all elements in list satisfy a predicate
+all' :: (a -> Bool) -> [a] -> Bool
+all' p  = foldr (\x acc -> p x && acc) True
+
+-- all redux
+all'' :: (a -> Bool) -> [a] -> Bool
+all'' p = and . map p
+
+-- any element in list satisfies a predicate
+any' :: (a -> Bool) -> [a] -> Bool
+any' p = or . map p
+
+-- select elements while they satisfy a predicate
+takeWhile' :: (a -> Bool) -> [a] -> [a]
+takeWhile' _ [] = []
+takeWhile' p (x:xs) 
+  | p x = x : takeWhile' p xs
+  | otherwise =  []
+
+-- remove elements from a list while they satisfy a predicate
+dropWhile' :: (a -> Bool) -> [a] -> [a]
+dropWhile' _ [] = []
+dropWhile' p (x:xs)
+  | p x = dropWhile' p xs
+  | otherwise = x:xs
+
+-- dec to int using foldl
+dec2int :: [Int] -> Int
+dec2int dec = foldl (\acc (digit, power) -> acc + (digit*power)) 0 digitPowers
+    where
+        powers = reverse [10^x | x <-[0..length dec -1]]
+        digitPowers = zip dec powers
+
+-- much simpler dec2int !!
+dec2int' :: [Int] -> Int
+dec2int' = foldl (\acc x -> 10*acc + x) 0
+
+-- curry
+curry' :: ((a, b) -> c) -> a -> b -> c
+curry' f x y = f (x,y)
+
+-- uncurry
+uncurry' :: (a -> b -> c) -> (a,b) -> c
+uncurry' f (x,y) = f x y
+
+{- unfold -}
+unfold p h t x 
+  | p x = []
+  | otherwise = h x : unfold p h t (t x)
+
+{- unfold can be usd to write int2bin 
+    int2bin :: Int -> [Bit]
+    int2bin 0 = []
+    int2bin n = n `mod` 2 : int2bin (n `div` 2)
+    -}
+int2bin' :: Int -> [Bit]
+int2bin' = unfold (==0) (`mod` 2) (`div` 2) 
+
+
+{-
+    chop8 :: [Bit] -> [[Bit]]
+    chop8 [] = []
+    chop8 xs = take 8 xs : chop8 (drop 8 xs) 
+    -}
+
+chop8' :: [Bit] -> [[Bit]]
+chop8' = unfold (==[]) (take 8) (drop 8)
+
+-- map f using unfold
+mapF :: Eq a => (a -> b) -> [a] -> [b]
+mapF f = unfold (==[]) (f . head) ( tail )
+
+-- iterate f using unfold
+iterateF :: (a -> a) -> a -> [a]
+iterateF f  = unfold (const False) id f
+
+-- alternately apply two functions to sucessive elements of list
+altMap :: (a -> b) -> (a -> b) -> [a] -> [b]
+altMap f g [] = []
+altMap f g (x:[]) = [f x]
+altMap f g (x: x':xs) = f x : g x' : altMap f g xs
+
+-- luhns check for credit card
+
+luhnDouble :: Int -> Int
+luhnDouble x  = case (2*x > 9) of
+                  True -> 2*x - 9
+                  False -> 2*x
+
+luhn :: [Int] -> Bool
+luhn ns = (sum (altMap id luhnDouble (reverse ns)) `mod` 10) == 0
+
+
